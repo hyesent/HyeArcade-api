@@ -72,9 +72,10 @@ def unique_players(players: list[dict]) -> list[dict]:
 
 
 class Room:
-    def __init__(self, code: str, host_id: str, game_id: str, player: dict, token: str):
+    def __init__(self, code: str, host_id: str, game_id: str, player: dict, token: str, is_public: bool = True):
         stamp = now_ms()
         self.code, self.host_id, self.game_id = code, host_id, game_id
+        self.is_public = bool(is_public)
         self.session = {"id": str(uuid.uuid4()), "gameId": game_id, "players": [player], "state": None,
                         "history": [], "status": "lobby", "result": None, "createdAt": stamp, "updatedAt": stamp}
         self.session_views: dict[str, dict] = {}
@@ -144,6 +145,8 @@ async def list_rooms(gameId: str | None = None):
     """Public room browser: only waiting rooms are listed; private room codes still work."""
     result = []
     for room in list(rooms.values()):
+        if not room.is_public:
+            continue
         if room.session["status"] != "lobby":
             continue
         if gameId and room.game_id != gameId:
@@ -173,7 +176,8 @@ async def create_room(request: Request):
     player = {"id": client_id, "profileId": safe_text(incoming.get("profileId"), 100) or None,
               "publicProfile": safe_profile(incoming.get("publicProfile")), "name": safe_text(incoming.get("name"), 32) or "Player",
               "kind": "human", "seat": 0, "connected": True, "ready": False}
-    room = Room(code, client_id, game_id, player, safe_text(body.get("clientToken"), 120))
+    is_public = body.get("isPublic", True) is not False
+    room = Room(code, client_id, game_id, player, safe_text(body.get("clientToken"), 120), is_public=is_public)
     rooms[code] = room
     return room.public_info(client_id)
 
@@ -206,7 +210,7 @@ def emit_session(room: Room) -> dict:
 @app.get("/api/rooms/{code}")
 async def room_info(code: str):
     room = get_room(code)
-    return {"code": room.code, "gameId": room.game_id, "status": room.session["status"],
+    return {"code": room.code, "gameId": room.game_id, "status": room.session["status"], "isPublic": room.is_public,
             "hostOnline": any(p["id"] == room.host_id and p.get("connected") for p in room.session["players"]),
             "players": [{"name": p["name"], "seat": p["seat"], "connected": p.get("connected", False)} for p in room.session["players"]]}
 
